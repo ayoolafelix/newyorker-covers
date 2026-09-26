@@ -60,6 +60,7 @@ const MAX_TEXTURES = 600;
 const MAX_INFLIGHT = 24;
 const PRE_ROWS = 8;
 const WARM_ON_BOOT = 260;
+const ROW_STEP = 2;           // content advances twice per row of travel
 
 const START_INDEX = 1200;
 
@@ -123,6 +124,11 @@ const FRAG = /* glsl */`
 const covers = await (await fetch('covers.json')).json();
 const total = covers.length;
 document.getElementById('count').textContent = total.toLocaleString('en-US');
+
+/* Cover credits are only published for 2017 onward, so this map is sparse by
+   necessity. Absent key means the publisher carries no credit for that cover. */
+let ARTISTS = {};
+try { ARTISTS = await (await fetch('artists.json')).json(); } catch { /* optional */ }
 
 /* Row stride forced coprime with the archive size, so a column works through
    all 5,104 covers before it repeats. */
@@ -272,9 +278,14 @@ function swayAmount(travel, rowPitch, cellH) {
 function layout() {
   const u = mod(H, pitchX);
   const v = mod(V, pitchY);
-  const baseRow = Math.floor(V / pitchY);
   const baseCol = Math.floor(H / pitchX);
   const sway = swayAmount(V, pitchY, cellH);
+
+  // Content advances on half-row boundaries, not whole rows. With a full-row
+  // step the visible set stays frozen for ~357px of travel, which reads as
+  // "the same covers over and over"; halving the step halves the stall and
+  // each advance still lands on a disjoint block (STRIDE >= needCols).
+  const rowUnit = ROW_STEP * Math.floor(V / pitchY) + Math.floor(v / (pitchY / ROW_STEP));
 
   for (const p of planes) {
     // both axes are centred on the viewport: the camera spans -vw/2..vw/2 and
@@ -298,7 +309,7 @@ function layout() {
     p.mat.uniforms.u_res.value.set(cellW, cellH);
     p.mat.uniforms.u_dim.value = 0.72 + 0.28 * depth;   // far columns dimmer
 
-    const idx = (((baseRow + p.j) * STRIDE + (baseCol + p.k) - START_INDEX) % total + total) % total;
+    const idx = (((rowUnit + p.j) * STRIDE + (baseCol + p.k) - START_INDEX) % total + total) % total;
     if (idx !== p.idx) {
       p.idx = idx;
       const t = cache.get(idx);
@@ -318,12 +329,12 @@ function prefetch(now) {
   if (now - lastPrefetch < 100) return;
   lastPrefetch = now;
   const v = mod(V, pitchY);
-  const baseRow = Math.floor(V / pitchY);
   const baseCol = Math.floor(H / pitchX);
+  const rowUnit = ROW_STEP * Math.floor(V / pitchY) + Math.floor(v / (pitchY / ROW_STEP));
   for (let j = ROW_J0 - PRE_ROWS; j < ROW_J0 + needRows + PRE_ROWS; j++) {
-    const y = j * pitchY - v + cellH / 2;
-    if (y + cellH / 2 < -cellH || y - cellH / 2 > vh + cellH) continue;
-    const row = baseRow + j;
+    const y = j * pitchY - v + cellH / 2 - vh / 2;
+    if (y + cellH / 2 < -vh / 2 - cellH || y - cellH / 2 > vh / 2 + cellH) continue;
+    const row = rowUnit + j;
     for (let k = -1; k <= needCols; k++) {
       const idx = ((row * STRIDE + (baseCol + k) - START_INDEX) % total + total) % total;
       request(idx, 1 + Math.abs(j));
@@ -383,7 +394,7 @@ canvas.addEventListener('pointerup', (e) => {
   if (!dragging) return;
   dragging = false;
   document.body.classList.remove('dragging');
-  if (moved < 5 && hovered) window.open(covers[hovered.idx].full, '_blank', 'noopener');
+  if (moved < 5 && hovered) openPane(hovered.idx);
 });
 canvas.addEventListener('pointercancel', () => {
   dragging = false;
@@ -400,6 +411,74 @@ canvas.addEventListener('wheel', (e) => {
   tV += e.deltaY * k * 1.6;
   tH += e.deltaX * k * 1.0;
 }, { passive: false });
+
+/* --------------------------------------------------------------------- pane */
+
+const pane      = document.getElementById('pane');
+const paneScrim = document.getElementById('paneScrim');
+const paneImg   = document.getElementById('paneImg');
+const paneDate  = document.getElementById('paneDate');
+const paneArtist= document.getElementById('paneArtist');
+const paneTitle = document.getElementById('paneTitle');
+const paneNote  = document.getElementById('paneNote');
+const paneLink  = document.getElementById('paneLink');
+const paneCap   = document.getElementById('paneCaption');
+let lastFocus = null;
+
+function openPane(idx) {
+  const c = covers[idx];
+  const credit = ARTISTS[c.d];
+  lastFocus = document.activeElement;
+
+  paneImg.src = c.full;
+  paneImg.alt = `The New Yorker cover, ${c.t}`;
+  paneCap.textContent = credit && credit.title ? `\u201c${credit.title}\u201d` : '';
+  paneDate.textContent = c.t;
+
+  if (credit) {
+    paneArtist.textContent = credit.artist;
+    paneTitle.textContent  = credit.title || '\u2014';
+    paneNote.textContent   = '';
+  } else {
+    paneArtist.textContent = 'not published';
+    paneTitle.textContent  = '\u2014';
+    // honest about why, rather than showing a blank field
+    paneNote.textContent =
+      'The New Yorker publishes cover credits only from 2017 onward, so this ' +
+      'cover has no artist attached in their archive.';
+  }
+  paneLink.href = c.src;
+  readout.textContent = c.d;
+
+  pane.classList.add('open');
+  pane.setAttribute('aria-hidden', 'false');
+  paneScrim.hidden = false;
+  requestAnimationFrame(() => paneScrim.classList.add('on'));
+  document.getElementById('paneClose').focus();
+}
+
+function closePane() {
+  pane.classList.remove('open');
+  pane.setAttribute('aria-hidden', 'true');
+  paneScrim.classList.remove('on');
+  setTimeout(() => { paneScrim.hidden = true; }, 380);
+  if (lastFocus) lastFocus.focus?.();
+}
+
+document.getElementById('paneClose').addEventListener('click', closePane);
+paneScrim.addEventListener('click', closePane);
+addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && pane.classList.contains('open')) closePane();
+  // arrow keys step through the archive while the pane is open
+  if (!pane.classList.contains('open')) return;
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  e.preventDefault();
+  const cur = hovered ? hovered.idx : (paneIdx ?? 0);
+  const next = (cur + (e.key === 'ArrowDown' ? 1 : -1) + total) % total;
+  paneIdx = next;
+  openPane(next);
+});
+let paneIdx = null;
 
 /* ------------------------------------------------------------------ stalker */
 
