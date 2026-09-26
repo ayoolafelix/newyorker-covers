@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 /* Verifies the grid invariants the UI depends on. Run: node verify-grid.mjs
  *
  *  1. full-bleed  : cells cover the whole viewport at every scroll position
@@ -7,8 +8,21 @@
  *  4. stride      : the cover index stride is coprime with the archive size
  */
 const GAP = 12, MIN_COL_W = 250, MAX_COLS = 8;
-const COVER_AR = 1600 / 2184, TOTAL = 5104;
-const PARALLAX_SPAN = 0.10, PERIOD = 3, ROW_SPARE = 2;
+
+/* Read the live constants out of main.js. These drifted apart twice while the
+   harness carried its own copies, which is how a 0.10 span kept passing
+   verification long after it was too subtle to actually see. */
+const MAIN = readFileSync(new URL('./src/main.js', import.meta.url), 'utf8');
+const num = (name) => {
+  const m = MAIN.match(new RegExp(`const ${name} = ([0-9.]+)`));
+  if (!m) throw new Error(`${name} not found in src/main.js`);
+  return parseFloat(m[1]);
+};
+const PARALLAX_SPAN = num('PARALLAX_SPAN');
+const PERIOD = num('PARALLAX_PERIOD');
+const ROW_SPARE = num('ROW_SPARE');
+const COVER_AR = 1600 / 2184;
+const TOTAL = 5104;
 
 const mod = (a, n) => ((a % n) + n) % n;
 const swayAmt = (t, rowPitch, ch) =>

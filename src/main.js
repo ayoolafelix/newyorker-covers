@@ -53,8 +53,13 @@ const GAP = 12;
 const MIN_COL_W = 250;
 const MAX_COLS = 8;
 
-const PARALLAX_SPAN = 0.10;   // max column lead/lag, as a fraction of a row
-const PARALLAX_PERIOD = 3;    // rows of travel per full lead/lag cycle
+/* Parallax: each column travels at its own rate, so the field gains depth.
+   The span is the differential between the nearest and farthest column, as a
+   fraction of a row. 0.10 was too small to read; 0.30 puts the outer columns
+   about 0.6 of a row apart, which is legible as depth while every column
+   still stays inside its own row band. */
+const PARALLAX_SPAN = 0.30;
+const PARALLAX_PERIOD = 2.5;  // rows of travel per full lead/lag cycle
 
 const MAX_TEXTURES = 600;
 const MAX_INFLIGHT = 24;
@@ -93,6 +98,7 @@ const FRAG = /* glsl */`
   uniform vec2 u_size;
   uniform float u_has;
   uniform float u_dim;
+  uniform float u_sat;
   uniform vec3 u_paper;
   uniform sampler2D u_texture;
   varying vec2 vUv;
@@ -114,8 +120,11 @@ const FRAG = /* glsl */`
     if (u_has < 0.5) { gl_FragColor = vec4(u_paper, 1.0); return; }
     vec2 uv = contain(u_res, u_size, vUv * u_res);
     if (uv.x < 0.0) { gl_FragColor = vec4(u_paper, 1.0); return; }
-    vec3 c = texture2D(u_texture, uv).rgb * u_dim;
-    gl_FragColor = vec4(c, 1.0);
+    vec3 c = texture2D(u_texture, uv).rgb;
+    // atmospheric perspective: distance drains colour as well as light
+    float lum = dot(c, vec3(0.299, 0.587, 0.114));
+    c = mix(vec3(lum), c, u_sat);
+    gl_FragColor = vec4(c * u_dim, 1.0);
   }
 `;
 
@@ -249,6 +258,7 @@ function buildPlanes() {
           u_texture:{ value: null },
           u_has:    { value: 0 },
           u_dim:    { value: 1 },
+          u_sat:    { value: 1 },
           u_paper:  { value: paper },
         },
       });
@@ -298,8 +308,10 @@ function layout() {
     const x = p.k * pitchX - u + cellW / 2 - vw / 2;
     const y = v - p.j * pitchY + cellH / 2 - vh / 2;
 
-    // depth 0 at the left edge of the screen, 1 at the right
-    const depth = Math.min(1, Math.max(0, x / vw));
+    // depth 0 at the left edge of the screen, 1 at the right, on a smooth
+    // curve so the outer columns differ most and the middle stays put
+    const d0 = Math.min(1, Math.max(0, x / vw));
+    const depth = d0 * d0 * (3 - 2 * d0);
     const yShift = sway * (depth - 0.5) * 2;   // bounded, cannot break rows
 
     p.x = x;
@@ -312,7 +324,8 @@ function layout() {
     p.mesh.position.x = x;
     p.mesh.position.y = p.y;
     p.mat.uniforms.u_res.value.set(cellW, cellH);
-    p.mat.uniforms.u_dim.value = 0.72 + 0.28 * depth;   // far columns dimmer
+    p.mat.uniforms.u_dim.value = 0.58 + 0.42 * depth;   // distance drains light
+    p.mat.uniforms.u_sat.value = 0.45 + 0.55 * depth;   // ...and colour
 
     const idx = (((rowUnit + p.j) * STRIDE + (baseCol + p.k) - START_INDEX) % total + total) % total;
     if (idx !== p.idx) {
