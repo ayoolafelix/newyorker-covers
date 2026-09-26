@@ -60,7 +60,8 @@ const MAX_TEXTURES = 600;
 const MAX_INFLIGHT = 24;
 const PRE_ROWS = 8;
 const WARM_ON_BOOT = 260;
-const ROW_STEP = 2;           // content advances twice per row of travel
+const ROW_STEP = 2;         // content advances twice per row of travel
+const ROW_SPARE = 2;         // headroom rows drawn past each end of the viewport           // content advances twice per row of travel
 
 const START_INDEX = 1200;
 
@@ -229,10 +230,12 @@ function buildPlanes() {
   pitchY = cellH + GAP;
 
   needCols = Math.ceil(vw / pitchX) + 2;
-  // +3 rows, drawn from j = -1: one extra above and below, so the parallax
-  // sway (bounded by PARALLAX_SPAN * cellH) can never uncover an edge
-  ROW_J0 = -1;
-  needRows = Math.ceil(vh / pitchY) + 3;
+  // Which j lands on the top edge depends on the viewport height, so it is
+  // derived rather than hardcoded: y_j = origin - j*pitchY, so the top row is
+  // j = (cellH - vh)/pitchY. ROW_SPARE rows are drawn past each end so the
+  // parallax sway (bounded by PARALLAX_SPAN * cellH) cannot uncover an edge.
+  ROW_J0 = Math.floor((cellH - vh) / pitchY) - ROW_SPARE;
+  needRows = Math.ceil(vh / pitchY) + ROW_SPARE * 2 + 2;
   STRIDE = coprimeStride(needCols);
 
   for (let j = ROW_J0; j < ROW_J0 + needRows; j++) {
@@ -286,10 +289,14 @@ function layout() {
   const rowUnit = ROW_STEP * Math.floor(V / pitchY) + Math.floor(v / (pitchY / ROW_STEP));
 
   for (const p of planes) {
-    // both axes are centred on the viewport: the camera spans -vw/2..vw/2 and
-    // -vh/2..vh/2, so without these terms the lattice sits off to one side
+    // Vertical only. A row at feed position s sits (s - V) px below the
+    // viewport top and three.js y is up-positive, so y is negated; the
+    // previous sign made the strip run upward, so advancing the feed pushed
+    // content down and a drag moved the grid against the finger.
+    // Horizontal is NOT negated: columns must still run left to right.
+    // Content-follows-finger on x comes from flipping the drag sign instead.
     const x = p.k * pitchX - u + cellW / 2 - vw / 2;
-    const y = p.j * pitchY - v + cellH / 2 - vh / 2;
+    const y = v - p.j * pitchY + cellH / 2 - vh / 2;
 
     // depth 0 at the left edge of the screen, 1 at the right
     const depth = Math.min(1, Math.max(0, x / vw));
@@ -404,9 +411,9 @@ canvas.addEventListener('pointermove', (e) => {
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
     moved += Math.abs(dx) + Math.abs(dy);
-    tH += dx * DRAG_X;
+    tH -= dx * DRAG_X;   // content follows the finger on x
     tV += -dy * DRAG_Y;
-    vX = dx * DRAG_X; vY = -dy * DRAG_Y;
+    vX = -dx * DRAG_X; vY = -dy * DRAG_Y;
     return;
   }
   setHover(hitTest(e.clientX, e.clientY));

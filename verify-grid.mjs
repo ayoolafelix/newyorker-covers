@@ -8,7 +8,7 @@
  */
 const GAP = 12, MIN_COL_W = 250, MAX_COLS = 8;
 const COVER_AR = 1600 / 2184, TOTAL = 5104;
-const PARALLAX_SPAN = 0.10, PERIOD = 3;
+const PARALLAX_SPAN = 0.10, PERIOD = 3, ROW_SPARE = 2;
 
 const mod = (a, n) => ((a % n) + n) % n;
 const swayAmt = (t, rowPitch, ch) =>
@@ -28,8 +28,9 @@ for (const [vw, vh] of SIZES) {
   const cellW = (vw - GAP * (cols + 1)) / cols;
   const cellH = cellW / COVER_AR;
   const pitchX = cellW + GAP, pitchY = cellH + GAP;
-  const needCols = Math.ceil(vw / pitchX) + 2, ROW_J0 = -1;
-  const needRows = Math.ceil(vh / pitchY) + 3;
+  const needCols = Math.ceil(vw / pitchX) + 2;
+  const ROW_J0 = Math.floor((cellH - vh) / pitchY) - ROW_SPARE;
+  const needRows = Math.ceil(vh / pitchY) + ROW_SPARE * 2 + 2;
   const STRIDE = stride(needCols);
   if (gcd(STRIDE, TOTAL) !== 1) badStride++;
 
@@ -44,7 +45,7 @@ for (const [vw, vh] of SIZES) {
     for (let j = ROW_J0; j < ROW_J0 + needRows; j++) {
       for (let k = 0; k < needCols; k++) {
         const x = k * pitchX - u + cellW / 2 - vw / 2;   // world, viewport on 0
-        const y = j * pitchY - v + cellH / 2 - vh / 2;   // centred vertically too
+        const y = v - j * pitchY + cellH / 2 - vh / 2;   // centred vertically too
         const depth = Math.min(1, Math.max(0, (x + vw / 2) / vw));
         const yShift = y + sway * (depth - 0.5) * 2;
         const onX = x + cellW / 2 > -vw / 2 && x - cellW / 2 < vw / 2;
@@ -88,7 +89,7 @@ for (const [vw, vh] of SIZES) {
     for (let j = ROW_J0; j < ROW_J0 + needRows; j++) {
       for (let k = 0; k < needCols; k++) {
         const x = k * pitchX - u + cellW / 2 - vw / 2;
-        const y = j * pitchY - v + cellH / 2 - vh / 2;
+        const y = v - j * pitchY + cellH / 2 - vh / 2;
         const depth = Math.min(1, Math.max(0, (x + vw / 2) / vw));
         const yShift = y + sway * (depth - 0.5) * 2;
         if (x + cellW / 2 > -vw / 2 && x - cellW / 2 < vw / 2) {
