@@ -133,6 +133,21 @@ body.dragging { cursor: grabbing; }
   flex: none;
   opacity: .8;
 }
+/* the colophon is inert so it never eats drags across the grid; the link
+   opts back in and carries the muted tone until hovered */
+.colophon__link {
+  pointer-events: auto;
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color .2s ease, opacity .2s ease;
+}
+.colophon__link:hover,
+.colophon__link:focus-visible {
+  opacity: .85;
+  border-bottom-color: currentColor;
+}
+.colophon__link:focus-visible { outline: none; }
 
 /* ------------------------------------------------------------------- pane */
 .pane {
