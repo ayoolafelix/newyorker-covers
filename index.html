@@ -21,16 +21,10 @@
   <canvas id="gl"></canvas>
 
   <header class="hud">
-    <h1>The New Yorker <span>1925&ndash;2026</span></h1>
-    <p class="sub">Every cover since the first issue &middot; <b id="count">5,104</b></p>
+    <h1>The New Yorker Cover Archive</h1>
   </header>
 
-  <div class="readout" id="readout" aria-live="polite">
-    <span class="date" id="rDate">&nbsp;</span>
-    <span class="hint">drag &middot; scroll &middot; click for full size</span>
-  </div>
-
-  <a class="credit" id="credit" href="#" target="_blank" rel="noopener noreferrer">issue &rarr;</a>
+  <a class="credit" id="credit" href="#" target="_blank" rel="noopener noreferrer">click for full size</a>
 
   <div class="stalker" id="stalker" aria-hidden="true"></div>
   <div class="loader" id="loader"><span>loading covers&hellip;</span></div>
@@ -44,11 +38,10 @@
         <figcaption id="paneCaption"></figcaption>
       </figure>
       <h2 class="pane__date" id="paneDate">&nbsp;</h2>
-      <dl class="pane__meta">
+      <dl class="pane__meta" id="paneMeta" hidden>
         <dt>Cover</dt><dd id="paneArtist">&nbsp;</dd>
         <dt>Title</dt><dd id="paneTitle">&nbsp;</dd>
       </dl>
-      <p class="pane__note" id="paneNote"></pane>
       <a class="pane__link" id="paneLink" href="#" target="_blank" rel="noopener">read the issue &rarr;</a>
     </div>
   </aside>

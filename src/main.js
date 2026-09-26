@@ -65,7 +65,6 @@ const ROW_STEP = 2;           // content advances twice per row of travel
 const START_INDEX = 1200;
 
 const canvas   = document.getElementById('gl');
-const readout  = document.getElementById('rDate');
 const credit   = document.getElementById('credit');
 const stalker  = document.getElementById('stalker');
 const loaderEl = document.getElementById('loader');
@@ -123,7 +122,6 @@ const FRAG = /* glsl */`
 
 const covers = await (await fetch('covers.json')).json();
 const total = covers.length;
-document.getElementById('count').textContent = total.toLocaleString('en-US');
 
 /* Cover credits are only published for 2017 onward, so this map is sparse by
    necessity. Absent key means the publisher carries no credit for that cover. */
@@ -379,10 +377,8 @@ canvas.addEventListener('pointermove', (e) => {
   if (best !== hovered) {
     hovered = best;
     if (best) {
-      const c = covers[best.idx];
-      readout.textContent = c.d;
-      credit.textContent = 'open full size';
-      credit.href = c.full;
+      credit.textContent = 'click for full size';
+      credit.href = covers[best.idx].full;
       credit.classList.add('on');
     } else {
       credit.classList.remove('on');
@@ -420,10 +416,67 @@ const paneImg   = document.getElementById('paneImg');
 const paneDate  = document.getElementById('paneDate');
 const paneArtist= document.getElementById('paneArtist');
 const paneTitle = document.getElementById('paneTitle');
-const paneNote  = document.getElementById('paneNote');
+const paneMeta  = document.getElementById('paneMeta');
 const paneLink  = document.getElementById('paneLink');
 const paneCap   = document.getElementById('paneCaption');
 let lastFocus = null;
+
+/* Sample the cover's dominant colour and tint the pane with it.
+   Works from the 280px WebP (~20 KB), not the multi-MB original, and caches
+   per cover so stepping through the archive is instant on revisit. */
+const colourCache = new Map();
+let sampleCanvas = null;
+
+function dominantColour(url) {
+  return new Promise((resolve) => {
+    if (colourCache.has(url)) return resolve(colourCache.get(url));
+    const img = new Image();
+    img.onload = () => {
+      let hex = '#121216';
+      try {
+        const W = 28, H = 38;
+        if (!sampleCanvas) sampleCanvas = document.createElement('canvas');
+        sampleCanvas.width = W; sampleCanvas.height = H;
+        const ctx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, W, H);
+        const { data } = ctx.getImageData(0, 0, W, H);
+        // quantise to 4-bit-per-channel buckets and take the most common,
+        // ignoring near-white paper and near-black ink so one of those
+        // dominating a line drawing cannot swamp the actual artwork colour
+        const bins = new Map();
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+          if (a < 128) continue;
+          const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+          if (mx > 238 && mn > 228) continue;   // paper
+          if (mx < 26) continue;               // ink
+          const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+          const cur = bins.get(key);
+          if (cur) { cur.n++; cur.r += r; cur.g += g; cur.b += b; }
+          else bins.set(key, { n: 1, r, g, b });
+        }
+        let best = null;
+        for (const v of bins.values()) if (!best || v.n > best.n) best = v;
+        if (best) {
+          const r = Math.round(best.r / best.n);
+          const g = Math.round(best.g / best.n);
+          const b = Math.round(best.b / best.n);
+          // darken heavily and desaturate a little: the pane has to keep
+          // white text legible whatever colour the artwork is
+          const k = 0.16;
+          const mix = (c, to) => Math.round(c * k + to * (1 - k));
+          hex = `rgb(${mix(r, 18)} ${mix(g, 18)} ${mix(b, 24)})`;
+          pane.style.setProperty('--pane-glow',
+            `rgba(${r}, ${g}, ${b}, .30)`);
+        }
+      } catch { /* tainted canvas or decode failure: keep the default */ }
+      colourCache.set(url, hex);
+      resolve(hex);
+    };
+    img.onerror = () => resolve('#121216');
+    img.src = url;
+  });
+}
 
 function openPane(idx) {
   const c = covers[idx];
@@ -435,20 +488,17 @@ function openPane(idx) {
   paneCap.textContent = credit && credit.title ? `\u201c${credit.title}\u201d` : '';
   paneDate.textContent = c.t;
 
+  // with no published credit, show the cover and nothing invented
+  paneMeta.hidden = !credit;
   if (credit) {
     paneArtist.textContent = credit.artist;
     paneTitle.textContent  = credit.title || '\u2014';
-    paneNote.textContent   = '';
-  } else {
-    paneArtist.textContent = 'not published';
-    paneTitle.textContent  = '\u2014';
-    // honest about why, rather than showing a blank field
-    paneNote.textContent =
-      'The New Yorker publishes cover credits only from 2017 onward, so this ' +
-      'cover has no artist attached in their archive.';
   }
   paneLink.href = c.src;
-  readout.textContent = c.d;
+
+  pane.style.setProperty('--pane-bg', '#121216');
+  pane.style.setProperty('--pane-glow', 'rgba(255,255,255,.06)');
+  dominantColour(c.thumb).then((col) => pane.style.setProperty('--pane-bg', col));
 
   pane.classList.add('open');
   pane.setAttribute('aria-hidden', 'false');
