@@ -1,47 +1,67 @@
 import * as THREE from 'three';
 
-/*  Every New Yorker cover since 1925 — infinite draggable WebGL grid.
+/*  Every New Yorker cover since 1925 — infinite, draggable, full-bleed grid.
  *
- *  Grid model
- *  ----------
- *  One unbounded float V (vertical travel) and H (horizontal) drive
- *  everything, so the field is endless: no page, no seams, no cell budget.
+ *  Architecture note
+ *  -----------------
+ *  The previous version gave each column its own scroll rate so the columns
+ *  would drift apart. That drift is unbounded: after a few thousand pixels
+ *  the columns no longer shared rows, so the lattice came apart, the band
+ *  stopped covering the viewport, and part of the screen went black.
  *
- *  Uniform spacing is a hard requirement, so the layout is derived from a
- *  single pitch:
+ *  This version keeps the grid a RIGID lattice. One offset drives every cell,
+ *  so row alignment, uniform spacing and full-bleed coverage are structural
+ *  rather than tuned. Parallax is applied afterwards as a bounded offset, so
+ *  it can never take the grid apart.
  *
- *      pitchX = cellW + GAP      pitchY = cellH + GAP
+ *  Placement
+ *  ---------
+ *      pitchX = cellW + GAP        pitchY = cellH + GAP
+ *      u = H mod pitchX            v = V mod pitchY
+ *      k in [0, needCols)          x = k*pitchX - u + cellW/2
+ *      j in [0, needRows)          y = j*pitchY - v + cellH/2
  *
- *  Every cell is cellW x cellH and every gap is exactly GAP. The column band
- *  is `renderCols` pitches wide and renderCols = cols + 2, so bandW > vw and
- *  the band always covers the viewport — which is what keeps the wrap seam
- *  off-screen. (Wrapping on cols*cellW + GAP*(cols-1) instead makes the band
- *  one GAP narrower than its own content: the seam gap goes to zero and
- *  columns touch.)
+ *  needCols/needRows are ceil(viewport/pitch) + 2, which guarantees the drawn
+ *  cells cover the viewport for every value of u and v, so there is never a
+ *  bare patch at any scroll position. The integer cell index comes from
+ *  floor(H/pitchX) + k, so the same cell always resolves to the same cover.
  *
- *  cellH = cellW / COVER_AR matches the cover's own proportions, so with
- *  contain() in the shader each cover fills its cell with no letterbox on the
- *  5,000+ issues that share the 1600x2184 ratio.
+ *  Spacing
+ *  -------
+ *  Every gap is exactly GAP because every x difference is exactly pitchX.
+ *  cellH = cellW / COVER_AR matches the covers' own 1600x2184 proportion, so
+ *  the contain() in the fragment shader leaves no letterbox.
  *
- *  Parallax: each column carries a depth d = col/(renderCols-1) and travels
- *  at rate 1 - PARALLAX*d, so columns drift apart vertically as you move.
- *  Cell size never changes, so the spacing stays uniform while it does.
+ *  Parallax
+ *  --------
+ *  Three layers, all bounded so alignment survives:
+ *    1. background planes at fixed differential rates (nemutas technique),
+ *    2. a per-column lead/lag as a triangle wave, capped at PARALLAX_SPAN
+ *       (10% of a row) so columns separate without ever losing their rows,
+ *    3. depth dimming in the shader — farther columns render darker.
  *
- *  Textures are prefetched in a ring around the viewport, lowest-priority
- *  distance first, so moving in any direction lands on an already-loaded
- *  cover instead of an empty cell.
+ *  Latency
+ *  -------
+ *  Covers are prefetched in a wide ring around the viewport, nearest row
+ *  first, into a 600-entry LRU that refuses to evict anything on screen.
+ *  Warming starts before first paint, so moving in any direction lands on a
+ *  resident texture.
  */
 
-const COVER_AR = 1600 / 2184;   // dominant cover aspect across the archive
-const PARALLAX = 0.42;          // vertical rate spread between near and far columns
-const GAP = 14;                 // uniform, both axes
-const MIN_COL_W = 300;
+const COVER_AR = 1600 / 2184;
+const GAP = 12;
+const MIN_COL_W = 250;
+const MAX_COLS = 8;
 
-const MAX_TEXTURES = 320;       // ~137 MB of VRAM at 280x382 RGBA
-const MAX_INFLIGHT = 10;
-const PRE_ROWS = 6;             // prefetch rows above and below the viewport
+const PARALLAX_SPAN = 0.10;   // max column lead/lag, as a fraction of a row
+const PARALLAX_PERIOD = 3;    // rows of travel per full lead/lag cycle
 
-const START_INDEX = 1200;       // open somewhere interesting rather than 1925
+const MAX_TEXTURES = 600;
+const MAX_INFLIGHT = 24;
+const PRE_ROWS = 8;
+const WARM_ON_BOOT = 260;
+
+const START_INDEX = 1200;
 
 const canvas   = document.getElementById('gl');
 const readout  = document.getElementById('rDate');
@@ -64,13 +84,14 @@ const VERT = /* glsl */`
   }
 `;
 
-/* contain(): map cell uv into image uv, letterboxing the remainder.
-   The source pen used cover(), which crops the artwork off at the edges. */
+/* contain() — map cell uv into image uv and letterbox the remainder.
+   The source pen used cover(), which crops the artwork at the cell edges. */
 const FRAG = /* glsl */`
   precision mediump float;
   uniform vec2 u_res;
   uniform vec2 u_size;
   uniform float u_has;
+  uniform float u_dim;
   uniform vec3 u_paper;
   uniform sampler2D u_texture;
   varying vec2 vUv;
@@ -92,7 +113,8 @@ const FRAG = /* glsl */`
     if (u_has < 0.5) { gl_FragColor = vec4(u_paper, 1.0); return; }
     vec2 uv = contain(u_res, u_size, vUv * u_res);
     if (uv.x < 0.0) { gl_FragColor = vec4(u_paper, 1.0); return; }
-    gl_FragColor = vec4(texture2D(u_texture, uv).rgb, 1.0);
+    vec3 c = texture2D(u_texture, uv).rgb * u_dim;
+    gl_FragColor = vec4(c, 1.0);
   }
 `;
 
@@ -102,11 +124,11 @@ const covers = await (await fetch('covers.json')).json();
 const total = covers.length;
 document.getElementById('count').textContent = total.toLocaleString('en-US');
 
-/* Row stride for the cover index. Must be coprime with `total`, otherwise a
-   column would revisit covers before working through the whole archive. */
+/* Row stride forced coprime with the archive size, so a column works through
+   all 5,104 covers before it repeats. */
 function coprimeStride(n) {
   const gcd = (a, b) => b ? gcd(b, a % b) : a;
-  let s = Math.max(n, 1);
+  let s = Math.max(1, n);
   while (gcd(s, total) !== 1) s++;
   return s;
 }
@@ -123,8 +145,8 @@ let vw = 0, vh = 0;
 /* ------------------------------------------------------- texture pool (LRU) */
 
 const texLoader = new THREE.TextureLoader();
-const cache   = new Map();      // idx -> texture, insertion order == LRU
-const pending = new Map();      // idx -> priority (lower == more urgent)
+const cache   = new Map();
+const pending = new Map();
 let inflight = 0;
 
 function touch(idx) {
@@ -146,7 +168,7 @@ function evict() {
     const tex = cache.get(key);
     let onScreen = false;
     for (const p of planes) if (p.tex === tex) { onScreen = true; break; }
-    if (onScreen) break;        // stop rather than pull a visible texture
+    if (onScreen) break;
     cache.delete(key);
     tex.dispose();
   }
@@ -166,7 +188,7 @@ function pump() {
       for (const p of planes) if (p.idx === best) bind(p, tex);
       evict();
       pump();
-      if (firstPaint && cache.size > 12) {
+      if (firstPaint && cache.size > 20) {
         firstPaint = false;
         loaderEl.classList.add('done');
       }
@@ -185,8 +207,8 @@ function request(idx, priority) {
 
 const geometry = new THREE.PlaneGeometry(1, 1);
 const planes = [];
-let cols = 0, renderCols = 0, rows = 0;
-let cellW = 0, cellH = 0, pitchX = 0, pitchY = 0, bandW = 0, STRIDE = 1;
+let cols = 0, needCols = 0, needRows = 0, ROW_J0 = 0;
+let cellW = 0, cellH = 0, pitchX = 0, pitchY = 0, STRIDE = 1;
 let hovered = null;
 
 const paper = new THREE.Color(0xf4f1ea);
@@ -195,22 +217,22 @@ function buildPlanes() {
   for (const p of planes) { scene.remove(p); p.mat.dispose(); }
   planes.length = 0;
 
-  const availW = vw - GAP * 2;
-  cols = Math.max(2, Math.min(7, Math.round(availW / MIN_COL_W)));
-  cellW = (availW - GAP * (cols - 1)) / cols;
+  // exact edge-to-edge fit: cols cells and cols+1 gaps span the viewport
+  cols = Math.max(2, Math.min(MAX_COLS, Math.round((vw - GAP) / (MIN_COL_W + GAP))));
+  cellW = (vw - GAP * (cols + 1)) / cols;
   cellH = cellW / COVER_AR;
   pitchX = cellW + GAP;
   pitchY = cellH + GAP;
 
-  // two extra columns so the band is always wider than the viewport; that is
-  // what keeps the wrap seam outside the visible area
-  renderCols = cols + 2;
-  bandW = renderCols * pitchX;
-  rows = Math.ceil(vh / pitchY) + 2;
-  STRIDE = coprimeStride(renderCols);
+  needCols = Math.ceil(vw / pitchX) + 2;
+  // +3 rows, drawn from j = -1: one extra above and below, so the parallax
+  // sway (bounded by PARALLAX_SPAN * cellH) can never uncover an edge
+  ROW_J0 = -1;
+  needRows = Math.ceil(vh / pitchY) + 3;
+  STRIDE = coprimeStride(needCols);
 
-  for (let c = 0; c < renderCols; c++) {
-    for (let r = 0; r < rows; r++) {
+  for (let j = ROW_J0; j < ROW_J0 + needRows; j++) {
+    for (let k = 0; k < needCols; k++) {
       const mat = new THREE.ShaderMaterial({
         vertexShader: VERT, fragmentShader: FRAG,
         uniforms: {
@@ -219,17 +241,14 @@ function buildPlanes() {
           u_size:   { value: new THREE.Vector2(COVER_AR, 1) },
           u_texture:{ value: null },
           u_has:    { value: 0 },
+          u_dim:    { value: 1 },
           u_paper:  { value: paper },
         },
       });
       const mesh = new THREE.Mesh(geometry, mat);
       mesh.scale.set(cellW, cellH, 1);
-      const depth = renderCols > 1 ? c / (renderCols - 1) : 0;
-      const plane = {
-        mesh, mat, col: c, row: r, idx: -1, tex: null,
-        depth, rate: 1 - PARALLAX * depth,
-        x: 0, y: 0, vis: false,
-      };
+      mesh.position.z = 0;
+      const plane = { mesh, mat, k, j, idx: -1, tex: null, x: 0, y: 0, vis: false };
       scene.add(mesh);
       planes.push(plane);
     }
@@ -241,32 +260,45 @@ function buildPlanes() {
 let V = 0, H = 0, tV = 0, tH = 0, cV = 0, cH = 0, diff = 0;
 let firstPaint = true;
 
-/* Wrap on the pitch so gaps stay identical across the seam. */
-const wrapBand = (u) => ((u % bandW) + bandW) % bandW;
+const mod = (a, n) => ((a % n) + n) % n;
 
-function indexFor(logicalRow, bandCol) {
-  return ((logicalRow * STRIDE + bandCol - START_INDEX) % total + total) % total;
+/* Smooth sway for the per-column lead/lag. Starts at 0 when travel is 0, so
+   the grid sits at rest exactly; a triangle wave would start at full offset
+   and pull the first column off the top edge. */
+function swayAmount(travel, rowPitch, cellH) {
+  return Math.sin((travel / rowPitch) / PARALLAX_PERIOD * Math.PI * 2) * PARALLAX_SPAN * cellH;
 }
 
 function layout() {
+  const u = mod(H, pitchX);
+  const v = mod(V, pitchY);
+  const baseRow = Math.floor(V / pitchY);
+  const baseCol = Math.floor(H / pitchX);
+  const sway = swayAmount(V, pitchY, cellH);
+
   for (const p of planes) {
-    const vy = V * p.rate;
-    const r0 = Math.floor(vy / pitchY);
-    const logicalRow = r0 + p.row;
-    const y = logicalRow * pitchY - vy;                 // [0, rows*pitchY)
+    // both axes are centred on the viewport: the camera spans -vw/2..vw/2 and
+    // -vh/2..vh/2, so without these terms the lattice sits off to one side
+    const x = p.k * pitchX - u + cellW / 2 - vw / 2;
+    const y = p.j * pitchY - v + cellH / 2 - vh / 2;
 
-    const u = wrapBand(H + p.col * pitchX);
-    const bandCol = Math.min(renderCols - 1, Math.floor(u / pitchX));
+    // depth 0 at the left edge of the screen, 1 at the right
+    const depth = Math.min(1, Math.max(0, x / vw));
+    const yShift = sway * (depth - 0.5) * 2;   // bounded, cannot break rows
 
-    p.x = u + cellW / 2 - bandW / 2 + vw / 2;
-    p.y = vh / 2 - (y + cellH / 2);
-    p.vis = (p.x + cellW / 2 > 0 && p.x - cellW / 2 < vw &&
-             p.y + cellH / 2 > 0 && p.y - cellH / 2 < vh);
+    p.x = x;
+    p.y = y + yShift;
+    // world coords are centred on the viewport, so test against -vw/2..vw/2
+    p.vis = (x + cellW / 2 > -vw / 2 && x - cellW / 2 < vw / 2 &&
+             p.y + cellH / 2 > -vh / 2 && p.y - cellH / 2 < vh / 2);
+    p.depth = depth;
 
-    p.mesh.position.x = p.x;
+    p.mesh.position.x = x;
     p.mesh.position.y = p.y;
+    p.mat.uniforms.u_res.value.set(cellW, cellH);
+    p.mat.uniforms.u_dim.value = 0.72 + 0.28 * depth;   // far columns dimmer
 
-    const idx = indexFor(logicalRow, bandCol);
+    const idx = (((baseRow + p.j) * STRIDE + (baseCol + p.k) - START_INDEX) % total + total) % total;
     if (idx !== p.idx) {
       p.idx = idx;
       const t = cache.get(idx);
@@ -274,31 +306,33 @@ function layout() {
       else {
         p.tex = null;
         p.mat.uniforms.u_has.value = 0;
-        request(idx, 0);
+        request(idx, 0);                      // on-screen always wins
       }
     }
   }
 }
 
-/* Prefetch a ring around the viewport so movement in any direction is warm. */
+/* prefetch a ring around the viewport so movement is always onto a hit */
 let lastPrefetch = 0;
 function prefetch(now) {
-  if (now - lastPrefetch < 120) return;
+  if (now - lastPrefetch < 100) return;
   lastPrefetch = now;
-  for (let c = 0; c < renderCols; c++) {
-    const rate = 1 - PARALLAX * (renderCols > 1 ? c / (renderCols - 1) : 0);
-    const vy = V * rate;
-    const r0 = Math.floor(vy / pitchY);
-    const u = wrapBand(H + c * pitchX);
-    const bandCol = Math.min(renderCols - 1, Math.floor(u / pitchX));
-    for (let j = -PRE_ROWS; j < rows + PRE_ROWS; j++) {
-      const logicalRow = r0 + j;
-      const y = logicalRow * pitchY - vy;
-      if (y + cellH < -cellH || y > vh + cellH) continue;   // offscreen ring
-      request(indexFor(logicalRow, bandCol), 1 + Math.abs(j - rows / 2));
+  const v = mod(V, pitchY);
+  const baseRow = Math.floor(V / pitchY);
+  const baseCol = Math.floor(H / pitchX);
+  for (let j = ROW_J0 - PRE_ROWS; j < ROW_J0 + needRows + PRE_ROWS; j++) {
+    const y = j * pitchY - v + cellH / 2;
+    if (y + cellH / 2 < -cellH || y - cellH / 2 > vh + cellH) continue;
+    const row = baseRow + j;
+    for (let k = -1; k <= needCols; k++) {
+      const idx = ((row * STRIDE + (baseCol + k) - START_INDEX) % total + total) % total;
+      request(idx, 1 + Math.abs(j));
     }
   }
 }
+
+/* warm the pool before the user touches anything */
+for (let i = 0; i < WARM_ON_BOOT; i++) request((START_INDEX + i * 7) % total, 50 + i);
 
 /* --------------------------------------------------------------------- input */
 
@@ -316,12 +350,11 @@ canvas.addEventListener('pointermove', (e) => {
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
     moved += Math.abs(dx) + Math.abs(dy);
-    tH += dx * 0.9;
-    tV += -dy * 1.35;
-    vX = dx * 0.9; vY = -dy * 1.35;
+    tH += dx;
+    tV += -dy;
+    vX = dx; vY = -dy;
     return;
   }
-  // hover: pick the visible plane under the cursor
   const nx = e.clientX - vw / 2, ny = vh / 2 - e.clientY;
   let best = null, bestD = Infinity;
   for (const p of planes) {
@@ -364,8 +397,8 @@ canvas.addEventListener('pointerleave', () => {
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   const k = e.deltaMode === 1 ? 18 : 1;
-  tV += e.deltaY * k * 2.0;
-  tH += e.deltaX * k * 1.2;
+  tV += e.deltaY * k * 1.6;
+  tH += e.deltaX * k * 1.0;
 }, { passive: false });
 
 /* ------------------------------------------------------------------ stalker */
@@ -399,9 +432,9 @@ function tick(now) {
   const dt = Math.min(48, now - last); last = now;
 
   if (!dragging) {
-    tV += vY * (dt / 16.6) * 0.55;
-    tH += vX * (dt / 16.6) * 0.55;
-    vY *= 0.93; vX *= 0.93;
+    tV += vY * (dt / 16.6) * 0.5;
+    tH += vX * (dt / 16.6) * 0.5;
+    vY *= 0.92; vX *= 0.92;
     if (Math.abs(vY) < 0.02) vY = 0;
     if (Math.abs(vX) < 0.02) vX = 0;
   }
@@ -414,9 +447,9 @@ function tick(now) {
   V = cV; H = cH;
 
   diff = Math.max(Math.abs((tV - cV) * 0.0001), Math.abs((tH - cH) * 0.0001));
+  if (V !== pv || H !== ph) layout();
   for (const p of planes) p.mat.uniforms.u_diff.value = diff;
 
-  if (V !== pv || H !== ph) layout();
   prefetch(now);
 
   for (const l of layers) {

@@ -5,3 +5,5 @@ node_modules
 # build output: reproducible from `npm run build`, and it duplicates 2.9 GB
 # of the same images that public/ already tracks
 dist
+.vercel
+.vercel
