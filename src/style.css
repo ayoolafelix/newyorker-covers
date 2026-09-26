@@ -135,17 +135,34 @@ body.dragging { cursor: grabbing; }
 }
 /* the colophon is inert so it never eats drags across the grid; the link
    opts back in and carries the muted tone until hovered */
+/* underline grows out from the centre rather than sliding in from the left */
 .colophon__link {
+  position: relative;
   pointer-events: auto;
   color: inherit;
   text-decoration: none;
-  border-bottom: 1px solid transparent;
-  transition: border-color .2s ease, opacity .2s ease;
+  transition: opacity .2s ease;
+}
+.colophon__link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 1px;
+  background: currentColor;
+  opacity: 1;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform .28s ease;
 }
 .colophon__link:hover,
 .colophon__link:focus-visible {
   opacity: .85;
-  border-bottom-color: currentColor;
+}
+.colophon__link:hover::after,
+.colophon__link:focus-visible::after {
+  transform: scaleX(1);
 }
 .colophon__link:focus-visible { outline: none; }
 
