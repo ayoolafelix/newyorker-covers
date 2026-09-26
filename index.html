@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Every New Yorker Cover, 1925&ndash;2026</title>
+<meta name="description" content="All 5,104 New Yorker covers published since February 1925, as an infinite draggable WebGL grid." />
+<link rel="preconnect" href="/" />
+<link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <!-- parallax backdrop: layers drift at different rates behind the grid -->
+  <div class="backdrop" aria-hidden="true">
+    <div class="layer l1" data-depth="0.06"></div>
+    <div class="layer l2" data-depth="0.12"></div>
+    <div class="layer l3" data-depth="0.20"></div>
+  </div>
+
+  <canvas id="gl"></canvas>
+
+  <header class="hud">
+    <h1>The New Yorker <span>1925&ndash;2026</span></h1>
+    <p class="sub">Every cover since the first issue &middot; <b id="count">5,104</b></p>
+  </header>
+
+  <div class="readout" id="readout" aria-live="polite">
+    <span class="date" id="rDate">&nbsp;</span>
+    <span class="hint">drag &middot; scroll &middot; click for full size</span>
+  </div>
+
+  <a class="credit" id="credit" href="#" target="_blank" rel="noopener noreferrer">issue &rarr;</a>
+
+  <div class="stalker" id="stalker" aria-hidden="true"></div>
+  <div class="loader" id="loader"><span>loading covers&hellip;</span></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
