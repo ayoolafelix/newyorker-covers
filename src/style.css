@@ -64,6 +64,12 @@ body.dragging { cursor: grabbing; }
   height: 100%;
   display: block;
   z-index: 1;
+  /* the grid handles the gesture itself; without this the browser also
+     scrolls and pinch-zooms, which is what made touch dragging feel wrong */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* --------------------------------------------------------------------- hud */
@@ -331,3 +337,32 @@ body.dragging { cursor: grabbing; }
 .loader.done { opacity: 0; pointer-events: none; }
 
 @media (hover: none) { .stalker { display: none; } }
+
+/* ------------------------------------------------------------------ mobile
+   The pane becomes a bottom sheet: on a phone a 420px side panel leaves no
+   room for the grid, and a thumb reaches the bottom of the screen far more
+   easily than the top-right corner. */
+@media (max-width: 700px), (pointer: coarse) and (max-width: 900px) {
+  .pane {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 90vh;
+    border-left: 0;
+    border-top: 1px solid rgba(244, 241, 234, .12);
+    border-radius: 16px 16px 0 0;
+    transform: translateY(100%);
+    padding: clamp(40px, 5vw, 52px) clamp(16px, 5vw, 24px) clamp(20px, 4vw, 28px);
+  }
+  .pane.open { transform: none; }
+  .pane__close { top: 8px; right: 12px; }
+  /* keep the cover from pushing the date and credit below the fold */
+  .pane__fig img { max-height: 44vh; width: auto; margin: 0 auto; }
+  .pane__fig figcaption { text-align: center; }
+  .pane__date { font-size: clamp(22px, 6vw, 28px); }
+  .hud { padding: 14px 16px; }
+  .hud h1 { font-size: 17px; }
+  .colophon { font-size: 9.5px; letter-spacing: .1em; }
+}

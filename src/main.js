@@ -345,7 +345,43 @@ for (let i = 0; i < WARM_ON_BOOT; i++) request((START_INDEX + i * 7) % total, 50
 
 /* --------------------------------------------------------------------- input */
 
+/* Resolve the plane under a viewport point. Used by both hover and tap, so a
+   touch tap works without ever having hovered first. */
+function hitTest(clientX, clientY) {
+  const nx = clientX - vw / 2, ny = vh / 2 - clientY;
+  let best = null, bestD = Infinity;
+  for (const p of planes) {
+    if (!p.vis) continue;
+    const dx = Math.abs(nx - p.x), dy = Math.abs(ny - p.y);
+    if (dx <= cellW / 2 && dy <= cellH / 2) {
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = p; }
+    }
+  }
+  return best;
+}
+
+function setHover(plane) {
+  if (plane === hovered) return;
+  hovered = plane;
+  if (plane) {
+    credit.textContent = 'click for full size';
+    credit.href = covers[plane.idx].full;
+    credit.classList.add('on');
+  } else {
+    credit.classList.remove('on');
+  }
+}
+
 let dragging = false, lastX = 0, lastY = 0, vX = 0, vY = 0, moved = 0;
+
+/* Touch is coarse: a finger covers a lot of screen and travels less, so it
+   tracks closer to 1:1 and glides longer. Pointer gives the finer, slightly
+   damped feel the desktop build had. */
+const COARSE = matchMedia('(hover: none)').matches || navigator.maxTouchPoints > 0;
+const DRAG_Y = COARSE ? 1.0 : 1.35;
+const DRAG_X = COARSE ? 0.7 : 0.9;
+const TAP_SLOP = COARSE ? 12 : 5;   // a finger always wobbles a little
 
 canvas.addEventListener('pointerdown', (e) => {
   dragging = true; moved = 0;
@@ -360,31 +396,12 @@ canvas.addEventListener('pointermove', (e) => {
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
     moved += Math.abs(dx) + Math.abs(dy);
-    tH += dx;
-    tV += -dy;
-    vX = dx; vY = -dy;
+    tH += dx * DRAG_X;
+    tV += -dy * DRAG_Y;
+    vX = dx * DRAG_X; vY = -dy * DRAG_Y;
     return;
   }
-  const nx = e.clientX - vw / 2, ny = vh / 2 - e.clientY;
-  let best = null, bestD = Infinity;
-  for (const p of planes) {
-    if (!p.vis) continue;
-    const dx = Math.abs(nx - p.x), dy = Math.abs(ny - p.y);
-    if (dx <= cellW / 2 && dy <= cellH / 2) {
-      const d = dx * dx + dy * dy;
-      if (d < bestD) { bestD = d; best = p; }
-    }
-  }
-  if (best !== hovered) {
-    hovered = best;
-    if (best) {
-      credit.textContent = 'click for full size';
-      credit.href = covers[best.idx].full;
-      credit.classList.add('on');
-    } else {
-      credit.classList.remove('on');
-    }
-  }
+  setHover(hitTest(e.clientX, e.clientY));
 });
 
 canvas.addEventListener('pointerup', (e) => {
@@ -392,7 +409,12 @@ canvas.addEventListener('pointerup', (e) => {
   dragging = false;
   document.body.classList.remove('dragging');
   stalker.classList.remove('dragging');
-  if (moved < 5 && hovered) openPane(hovered.idx);
+  if (moved < TAP_SLOP) {
+    // resolve the cover at the tap point: on touch there was never a hover,
+    // so `hovered` would still be null and the pane would never open
+    const hit = hitTest(e.clientX, e.clientY);
+    if (hit) { paneIdx = hit.idx; openPane(hit.idx); }
+  }
 });
 canvas.addEventListener('pointercancel', () => {
   dragging = false;
@@ -413,6 +435,7 @@ canvas.addEventListener('wheel', (e) => {
 
 /* --------------------------------------------------------------------- pane */
 
+let paneIdx = null;
 const pane      = document.getElementById('pane');
 const paneScrim = document.getElementById('paneScrim');
 const paneFig   = document.getElementById('paneFig');
@@ -552,12 +575,11 @@ addEventListener('keydown', (e) => {
   if (!pane.classList.contains('open')) return;
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
   e.preventDefault();
-  const cur = hovered ? hovered.idx : (paneIdx ?? 0);
+  const cur = paneIdx ?? 0;
   const next = (cur + (e.key === 'ArrowDown' ? 1 : -1) + total) % total;
   paneIdx = next;
   openPane(next);
 });
-let paneIdx = null;
 
 /* ------------------------------------------------------------------ stalker */
 
@@ -592,7 +614,8 @@ function tick(now) {
   if (!dragging) {
     tV += vY * (dt / 16.6) * 0.5;
     tH += vX * (dt / 16.6) * 0.5;
-    vY *= 0.92; vX *= 0.92;
+    vY *= COARSE ? 0.955 : 0.92;
+    vX *= COARSE ? 0.955 : 0.92;
     if (Math.abs(vY) < 0.02) vY = 0;
     if (Math.abs(vX) < 0.02) vX = 0;
   }
