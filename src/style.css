@@ -342,7 +342,11 @@ body.dragging { cursor: grabbing; }
    The pane becomes a bottom sheet: on a phone a 420px side panel leaves no
    room for the grid, and a thumb reaches the bottom of the screen far more
    easily than the top-right corner. */
-@media (max-width: 700px), (pointer: coarse) and (max-width: 900px) {
+/* The earlier query was (max-width:700px), (pointer:coarse) and (max-width:900px).
+   A landscape phone is 932px wide, so it matched neither and fell back to the
+   side panel. Any coarse pointer now gets the sheet regardless of width, and
+   short viewports are covered as well. */
+@media (max-width: 700px), (pointer: coarse), (max-height: 520px) {
   .pane {
     top: auto;
     left: 0;
