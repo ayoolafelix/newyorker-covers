@@ -84,6 +84,13 @@ body.dragging { cursor: grabbing; }
   letter-spacing: .06em;
   text-transform: uppercase;
 }
+/* forced wrap: "The New Yorker" on line one, "Cover Archive" on line two */
+.hud h1 span {
+  display: block;
+  font-size: .78em;
+  letter-spacing: .1em;
+  color: rgba(244, 241, 234, .62);
+}
 
 
 .credit {
@@ -152,7 +159,7 @@ body.dragging { cursor: grabbing; }
 
 .pane__scroll { display: flex; flex-direction: column; gap: 1.1rem; }
 
-.pane__fig { margin: 0; }
+.pane__fig { margin: 0; position: relative; }
 .pane__fig img {
   display: block;
   width: 100%;
@@ -160,6 +167,28 @@ body.dragging { cursor: grabbing; }
   border-radius: 2px;
   background: #1b1b20;
   box-shadow: 0 18px 50px rgba(0, 0, 0, .55);
+}
+
+/* placeholder while the full-res file decodes: the figure holds its aspect so
+   the pane does not reflow, and no previous cover is ever left on screen */
+.pane__fig::before {
+  content: "";
+  display: block;
+  padding-top: 136.5%;            /* 1 / 0.7326, the cover proportion */
+  border-radius: 2px;
+  background: linear-gradient(100deg, #1a1a1f 30%, #23232a 50%, #1a1a1f 70%)
+              0 0 / 250% 100%;
+  animation: paneSheen 1.15s linear infinite;
+}
+.pane__fig.is-loading::before { opacity: 1; }
+.pane__fig:not(.is-loading)::before { display: none; }
+.pane__fig:has(img[src])::before { display: none; }
+@keyframes paneSheen {
+  from { background-position: 120% 0; }
+  to   { background-position: -120% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pane__fig::before { animation: none; }
 }
 .pane__fig figcaption {
   margin-top: .7rem;

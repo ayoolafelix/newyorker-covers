@@ -412,6 +412,7 @@ canvas.addEventListener('wheel', (e) => {
 
 const pane      = document.getElementById('pane');
 const paneScrim = document.getElementById('paneScrim');
+const paneFig   = document.getElementById('paneFig');
 const paneImg   = document.getElementById('paneImg');
 const paneDate  = document.getElementById('paneDate');
 const paneArtist= document.getElementById('paneArtist');
@@ -478,13 +479,32 @@ function dominantColour(url) {
   });
 }
 
+/* Decode before swapping. Assigning paneImg.src to a multi-megabyte full-res
+   file leaves the previous cover on screen until the new one decodes, which
+   reads as a flash of stale content. Clearing src first and swapping only
+   after decode removes that frame entirely. `paneToken` drops results that a
+   later click has already superseded. */
+let paneToken = 0;
+
+function loadCoverImage(url) {
+  return new Promise((resolve) => {
+    const im = new Image();
+    im.onload = () => resolve(url);
+    im.onerror = () => resolve(null);
+    im.src = url;
+  });
+}
+
 function openPane(idx) {
   const c = covers[idx];
   const credit = ARTISTS[c.d];
   lastFocus = document.activeElement;
+  const token = ++paneToken;
 
-  paneImg.src = c.full;
+  // text swaps immediately; only the image is asynchronous
   paneImg.alt = `The New Yorker cover, ${c.t}`;
+  paneImg.removeAttribute('src');          // drop the stale cover at once
+  paneFig.classList.add('is-loading');
   paneCap.textContent = credit && credit.title ? `\u201c${credit.title}\u201d` : '';
   paneDate.textContent = c.t;
 
@@ -495,6 +515,12 @@ function openPane(idx) {
     paneTitle.textContent  = credit.title || '\u2014';
   }
   paneLink.href = c.src;
+
+  loadCoverImage(c.full).then((url) => {
+    if (token !== paneToken) return;       // a newer click won
+    if (url) paneImg.src = url;
+    paneFig.classList.remove('is-loading');
+  });
 
   pane.style.setProperty('--pane-bg', '#121216');
   pane.style.setProperty('--pane-glow', 'rgba(255,255,255,.06)');
@@ -508,6 +534,7 @@ function openPane(idx) {
 }
 
 function closePane() {
+  paneToken++;                 // abandon any in-flight image swap
   pane.classList.remove('open');
   pane.setAttribute('aria-hidden', 'true');
   paneScrim.classList.remove('on');

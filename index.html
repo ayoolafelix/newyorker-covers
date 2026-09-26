@@ -21,7 +21,7 @@
   <canvas id="gl"></canvas>
 
   <header class="hud">
-    <h1>The New Yorker Cover Archive</h1>
+    <h1>The New Yorker <span>Cover Archive</span></h1>
   </header>
 
   <a class="credit" id="credit" href="#" target="_blank" rel="noopener noreferrer">click for full size</a>
@@ -33,7 +33,7 @@
   <aside class="pane" id="pane" aria-hidden="true" role="dialog" aria-label="Cover detail">
     <button class="pane__close" id="paneClose" aria-label="Close">&times;</button>
     <div class="pane__scroll">
-      <figure class="pane__fig">
+      <figure class="pane__fig" id="paneFig">
         <img id="paneImg" alt="" />
         <figcaption id="paneCaption"></figcaption>
       </figure>
