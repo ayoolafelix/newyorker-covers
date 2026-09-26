@@ -279,17 +279,23 @@ body.dragging { cursor: grabbing; }
 .pane__note:empty { display: none; }
 
 
-/* ------------------------------------------- custom cursor (nemutas touch) */
+/* ------------------------------------------------------------------ cursor
+   The X glyph is the cursor. The native one is suppressed only on precise
+   pointers, so touch and hybrid devices keep a real cursor and the stalker
+   stays hidden there via the hover:none rule below. */
 .stalker {
   position: fixed;
   top: 0; left: 0;
-  width: 15px; height: 15px;
-  border-radius: 50%;
-  background: rgba(255,255,255,.6);
+  width: 16px; height: 16px;
   pointer-events: none;
   z-index: 9;
-  mix-blend-mode: difference;
   will-change: transform;
+}
+.stalker svg { display: block; }
+.stalker.dragging svg { transform: scale(.82); }
+
+@media (hover: hover) and (pointer: fine) {
+  html, body, canvas, .pane, .credit, .colophon__link { cursor: none; }
 }
 
 .loader {

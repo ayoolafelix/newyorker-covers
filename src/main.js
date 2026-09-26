@@ -352,6 +352,7 @@ canvas.addEventListener('pointerdown', (e) => {
   lastX = e.clientX; lastY = e.clientY;
   canvas.setPointerCapture(e.pointerId);
   document.body.classList.add('dragging');
+  stalker.classList.add('dragging');
 });
 
 canvas.addEventListener('pointermove', (e) => {
@@ -390,11 +391,13 @@ canvas.addEventListener('pointerup', (e) => {
   if (!dragging) return;
   dragging = false;
   document.body.classList.remove('dragging');
+  stalker.classList.remove('dragging');
   if (moved < 5 && hovered) openPane(hovered.idx);
 });
 canvas.addEventListener('pointercancel', () => {
   dragging = false;
   document.body.classList.remove('dragging');
+  stalker.classList.remove('dragging');
 });
 canvas.addEventListener('pointerleave', () => {
   hovered = null;
@@ -615,7 +618,7 @@ function tick(now) {
 
   sCur.x += (sTgt.x - sCur.x) * 0.3;
   sCur.y += (sTgt.y - sCur.y) * 0.3;
-  stalker.style.transform = `translate3d(${sCur.x - 7.5}px, ${sCur.y - 7.5}px, 0)`;
+  stalker.style.transform = `translate3d(${sCur.x - 8}px, ${sCur.y - 8}px, 0)`;
 
   renderer.render(scene, camera);
 }
