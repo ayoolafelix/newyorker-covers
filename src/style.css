@@ -84,12 +84,10 @@ body.dragging { cursor: grabbing; }
   letter-spacing: .06em;
   text-transform: uppercase;
 }
-/* forced wrap: "The New Yorker" on line one, "Cover Archive" on line two */
+/* forced wrap: "The New Yorker" on line one, "Cover Archive" on line two,
+   with identical type treatment and size to the first line */
 .hud h1 span {
   display: block;
-  font-size: .78em;
-  letter-spacing: .1em;
-  color: rgba(244, 241, 234, .62);
 }
 
 
@@ -110,6 +108,30 @@ body.dragging { cursor: grabbing; }
 }
 .credit.on { opacity: .8; transform: none; pointer-events: auto; }
 .credit:hover { opacity: 1; }
+
+/* colophon, in the bottom-left slot the hovered-issue readout used to hold */
+.colophon {
+  position: fixed;
+  z-index: 3;
+  left: clamp(14px, 2.4vw, 30px);
+  bottom: clamp(30px, 4vw, 50px);
+  margin: 0;
+  pointer-events: none;
+  color: rgba(244, 241, 234, .42);
+  font-size: clamp(10px, .85vw, 12px);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.colophon span[aria-hidden] { letter-spacing: 0; }
+.sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* ------------------------------------------------------------------- pane */
 .pane {
