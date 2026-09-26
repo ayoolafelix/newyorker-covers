@@ -383,6 +383,14 @@ const DRAG_Y = COARSE ? 1.0 : 1.35;
 const DRAG_X = COARSE ? 0.7 : 0.9;
 const TAP_SLOP = COARSE ? 12 : 5;   // a finger always wobbles a little
 
+/* The pane's layout is set from here rather than a media query, so it can
+   never disagree with the grid's own idea of the viewport. Re-evaluated on
+   resize and orientation change. */
+function syncPaneLayout() {
+  const sheet = COARSE || window.innerWidth <= 700 || window.innerHeight <= 520;
+  pane.classList.toggle('sheet', sheet);
+}
+
 canvas.addEventListener('pointerdown', (e) => {
   dragging = true; moved = 0;
   lastX = e.clientX; lastY = e.clientY;
@@ -410,6 +418,9 @@ canvas.addEventListener('pointerup', (e) => {
   document.body.classList.remove('dragging');
   stalker.classList.remove('dragging');
   if (moved < TAP_SLOP) {
+    // with the pane open a tap on the grid dismisses it; the scrim is
+    // pointer-events:none so it no longer intercepts the tap first
+    if (pane.classList.contains('open')) { closePane(); return; }
     // resolve the cover at the tap point: on touch there was never a hover,
     // so `hovered` would still be null and the pane would never open
     const hit = hitTest(e.clientX, e.clientY);
@@ -568,7 +579,6 @@ function closePane() {
 }
 
 document.getElementById('paneClose').addEventListener('click', closePane);
-paneScrim.addEventListener('click', closePane);
 addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && pane.classList.contains('open')) closePane();
   // arrow keys step through the archive while the pane is open
@@ -598,8 +608,10 @@ function resize() {
   camera.updateProjectionMatrix();
   buildPlanes();
   layout();
+  syncPaneLayout();
 }
 addEventListener('resize', resize);
+addEventListener('orientationchange', () => setTimeout(syncPaneLayout, 120));
 resize();
 
 /* --------------------------------------------------------------------- loop */
