@@ -122,15 +122,16 @@ body.dragging { cursor: grabbing; }
   letter-spacing: .14em;
   text-transform: uppercase;
 }
-.colophon span[aria-hidden] { letter-spacing: 0; }
-.sr {
-  position: absolute;
-  width: 1px; height: 1px;
-  padding: 0; margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
+.colophon {
+  display: flex;
+  align-items: center;
+  gap: .55em;
+}
+/* the source svg ships fill="black", which vanishes on this background, so the
+   path uses currentColor and inherits the colophon's muted tone instead */
+.colophon__heart {
+  flex: none;
+  opacity: .8;
 }
 
 /* ------------------------------------------------------------------- pane */
