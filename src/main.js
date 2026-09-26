@@ -418,9 +418,9 @@ const paneDate  = document.getElementById('paneDate');
 const paneArtist= document.getElementById('paneArtist');
 const paneTitle = document.getElementById('paneTitle');
 const paneMeta  = document.getElementById('paneMeta');
-const paneLink  = document.getElementById('paneLink');
+const paneRowArtist = document.getElementById('paneRowArtist');
+const paneRowTitle  = document.getElementById('paneRowTitle');
 const paneCap   = document.getElementById('paneCaption');
-let lastFocus = null;
 
 /* Sample the cover's dominant colour and tint the pane with it.
    Works from the 280px WebP (~20 KB), not the multi-MB original, and caches
@@ -498,7 +498,6 @@ function loadCoverImage(url) {
 function openPane(idx) {
   const c = covers[idx];
   const credit = ARTISTS[c.d];
-  lastFocus = document.activeElement;
   const token = ++paneToken;
 
   // text swaps immediately; only the image is asynchronous
@@ -508,13 +507,15 @@ function openPane(idx) {
   paneCap.textContent = credit && credit.title ? `\u201c${credit.title}\u201d` : '';
   paneDate.textContent = c.t;
 
-  // with no published credit, show the cover and nothing invented
-  paneMeta.hidden = !credit;
-  if (credit) {
-    paneArtist.textContent = credit.artist;
-    paneTitle.textContent  = credit.title || '\u2014';
-  }
-  paneLink.href = c.src;
+  // a label only appears when its value does: no "Cover" with nothing
+  // beside it, and the whole block disappears when neither row is filled
+  const hasArtist = !!(credit && credit.artist);
+  const hasTitle  = !!(credit && credit.title);
+  paneRowArtist.hidden = !hasArtist;
+  paneRowTitle.hidden  = !hasTitle;
+  paneMeta.hidden      = !hasArtist && !hasTitle;
+  if (hasArtist) paneArtist.textContent = credit.artist;
+  if (hasTitle)  paneTitle.textContent  = credit.title;
 
   loadCoverImage(c.full).then((url) => {
     if (token !== paneToken) return;       // a newer click won
@@ -530,7 +531,6 @@ function openPane(idx) {
   pane.setAttribute('aria-hidden', 'false');
   paneScrim.hidden = false;
   requestAnimationFrame(() => paneScrim.classList.add('on'));
-  document.getElementById('paneClose').focus();
 }
 
 function closePane() {
@@ -539,7 +539,6 @@ function closePane() {
   pane.setAttribute('aria-hidden', 'true');
   paneScrim.classList.remove('on');
   setTimeout(() => { paneScrim.hidden = true; }, 380);
-  if (lastFocus) lastFocus.focus?.();
 }
 
 document.getElementById('paneClose').addEventListener('click', closePane);
