@@ -1,0 +1,65 @@
+name: Pin covers to Pinterest
+
+# Backfills the Pinterest board with the archive, oldest cover first, then
+# keeps it current as new issues are scraped. Runs on GitHub's schedule so it
+# does not depend on this machine being awake or online.
+on:
+  schedule:
+    # 07:23 UTC daily. An off-the-hour minute on purpose: scheduled workflows
+    # are queued at :00 and this avoids the stampede at the top of the hour.
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max covers to pin this run'
+        required: false
+        default: '20'
+
+permissions:
+  contents: write   # to commit the pinned-state file back
+
+# Never let two runs overlap. If one is still going when the next fires, the
+# new one is cancelled rather than doubling up on the same unpinned covers.
+concurrency:
+  group: pinterest-backfill
+  cancel-in-progress: false
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the pinned-state file lives in the repo and carries the history
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Show what is already pinned
+        run: python3 pin_pinterest.py --status
+
+      - name: Pin the next batch
+        env:
+          PINTEREST_TOKEN: ${{ secrets.PINTEREST_TOKEN }}
+          PINTEREST_BOARD: ${{ secrets.PINTEREST_BOARD }}
+        run: |
+          LIMIT="${{ github.event.inputs.limit || '20' }}"
+          python3 pin_pinterest.py --limit "$LIMIT"
+
+      - name: Commit the updated pinned-state
+        run: |
+          if git diff --quiet -- data/pinterest.json; then
+            echo "nothing to record (no covers pinned this run)"
+            exit 0
+          fi
+          git add data/pinterest.json
+          git commit -m "pinterest: record pinned covers [skip ci]"
+          # A rejected push here means someone else committed in the meantime.
+          # The next scheduled run reconciles from whatever is on main, so this
+          # is not fatal and must not fail the job.
+          git push || echo "push rejected; the next run will reconcile from main"
